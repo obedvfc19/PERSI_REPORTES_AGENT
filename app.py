@@ -33,7 +33,7 @@ REPORT_FLOW = {
     'report_complete':          { 'key': 'Completo', 'next_state': 'report_complete', 'question': 'Fotos de "después" recibidas. ✅ ¡Reporte completado! Estoy generando tu PDF, por favor espera un momento...'}
 }
 
-# --- 2. FUNCIÓN PARA CREAR EL PDF (VERSIÓN FINAL) ---
+# --- 2. FUNCIÓN PARA CREAR EL PDF (VERSIÓN FINAL MODIFICADA) ---
 def create_pdf(report_data, account_sid, auth_token):
     template_path = "REPORTE1.pdf"
     packet = io.BytesIO()
@@ -50,9 +50,9 @@ def create_pdf(report_data, account_sid, auth_token):
     
     # Lógica de ajuste de texto para "Descripción"
     text_object = can.beginText()
-    text_object.setTextOrigin(38, 665)
+    text_object.setTextOrigin(35, 700)
     text_object.setFont("Helvetica", 9)
-    max_width_desc = 485
+    max_width_desc = 470
     description_text = str(report_data.get('Descripcion de Actividad', ''))
     words = description_text.split()
     line = ''
@@ -79,9 +79,11 @@ def create_pdf(report_data, account_sid, auth_token):
                     temp_path = os.path.join('temp_images', str(uuid.uuid4()))
                     with open(temp_path, 'wb') as f: f.write(response.content)
                     with Image.open(temp_path) as img:
-                        img_w, img_h = img.size
-                        aspect_ratio = img_h / img_w
-                        display_w, display_h = max_width, max_width * aspect_ratio
+                        # --- MODIFICACIÓN AQUÍ ---
+                        # Se eliminó el cálculo del aspect ratio para forzar el tamaño.
+                        # El ancho es `max_width` (225) y el alto es fijo `250`.
+                        display_w, display_h = max_width, 235 
+                        
                         y_coord_from_bottom = y_cursor - display_h
                         can.drawImage(temp_path, x_start, y_coord_from_bottom, width=display_w, height=display_h, mask='auto')
                 else: raise Exception(f"Estado de descarga: {response.status_code}")
@@ -172,3 +174,4 @@ def whatsapp_reply():
 # --- 4. INICIAR LA APLICACIÓN ---
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
+
