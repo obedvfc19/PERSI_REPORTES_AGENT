@@ -1,0 +1,21 @@
+# Archivo de credenciales (MUY IMPORTANTE)
+.env
+
+# Entorno virtual de Python (si lo tienes dentro de esta carpeta)
+venv/
+__pycache__/
+
+# Archivos y carpetas que el programa genera al ejecutarse
+temp_images/
+static/reports/
+TEST_REPORTE.pdf
+
+# Scripts de prueba y archivos viejos que no son parte del bot final
+test_pdf.py
+test_imagen1.py
+test_imagen2.py
+agente_prototipo
+
+# Archivos que no son del proyecto (si aplica)
+*.csv
+*.html
