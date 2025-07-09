@@ -53,7 +53,7 @@ def create_pdf(report_data, account_sid, auth_token):
     text_object = can.beginText()
     text_object.setTextOrigin(35, 680)
     text_object.setFont("Helvetica", 9)
-    max_width_desc = 546
+    max_width_desc = 530
     description_text = str(report_data.get('Descripcion de Actividad', ''))
     words = description_text.split()
     line = ''
