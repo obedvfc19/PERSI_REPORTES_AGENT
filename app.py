@@ -143,7 +143,11 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
             except Exception as e:
                 # PISTA CLAVE: Si hay un error aquí, es problema de ReportLab o del archivo.
                 print(f"!!! ERROR FATAL al dibujar la imagen {path}: {e}")
-                y_cursor -= (40 + 5)
+
+            # --- CORRECCIÓN ---
+            # Movemos el cursor hacia abajo DESPUÉS de cada intento, haya sido exitoso o no.
+            # Esto asegura que la siguiente imagen se dibuje más abajo.
+            y_cursor -= (image_height + 5)
 
 
     if not os.path.exists('temp_images'): os.makedirs('temp_images')
