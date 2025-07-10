@@ -130,29 +130,67 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
         text_object.textLine(line)
     can.drawText(text_object)
 
+    def create_reporte2_pdf(report_data, account_sid, auth_token):
+    template_path = "REPORTE2.pdf"
+    packet = io.BytesIO()
+    can = canvas.Canvas(packet, pagesize=letter)
+    can.setFont("Helvetica", 9)
+
+    # --- Coordenadas de texto para REPORTE2.pdf (sin cambios) ---
+    can.drawString(92, 755, str(report_data.get('Area de trabajo', '')))
+    can.drawString(55, 743, str(report_data.get('Lugar', '')))
+    can.drawString(370, 755, str(report_data.get('Fecha', '')))
+    can.drawString(318, 743, str(report_data.get('O.T.', '')))
+    can.drawString(365, 718, str(report_data.get('Supervisor PERSI', '')))
+    can.drawString(365, 730, str(report_data.get('Usuario Calidra', '')))
+    can.drawString(25, 722, str(report_data.get('Trabajadores', '')))
+    can.drawString(508, 743, str(report_data.get('Duracion de trabajo', '')))
+
+    # --- Descripción general (sin cambios) ---
+    description = report_data.get('Descripcion general', '')
+    text_object = can.beginText(30, 687)
+    text_object.setFont("Helvetica", 9)
+    lines = simpleSplit(description, "Helvetica", 9, 520)
+    for line in lines:
+        text_object.textLine(line)
+    can.drawText(text_object)
+
+    # --- Lógica de imágenes (ACTUALIZADA PARA TRABAJAR EN MEMORIA) ---
     def add_image_gallery(urls, x_start, y_top, image_width, image_height):
         y_cursor = y_top
         for url in urls:
             try:
-                response = requests.get(url, auth=(account_sid, auth_token), timeout=20)
+                # 1. Descarga la imagen con un timeout más generoso para la red de la nube
+                print(f"Descargando imagen desde: {url}")
+                response = requests.get(url, auth=(account_sid, auth_token), timeout=25)
+                
+                # 2. Verifica que la descarga fue exitosa
                 if response.status_code == 200:
-                    temp_path = os.path.join('temp_images', str(uuid.uuid4()))
-                    with open(temp_path, 'wb') as f: f.write(response.content)
-                    can.drawImage(temp_path, x_start, y_cursor - image_height, width=image_width, height=image_height, mask='auto', preserveAspectRatio=False)
+                    # 3. En lugar de guardar en disco, carga la imagen en un buffer de memoria
+                    image_data = io.BytesIO(response.content)
+                    
+                    # 4. ReportLab lee la imagen directamente desde la memoria
+                    can.drawImage(image_data, x_start, y_cursor - image_height, width=image_width, height=image_height, mask='auto', preserveAspectRatio=False)
+                    print("Imagen dibujada en el PDF desde memoria.")
+                    
                     y_cursor -= (image_height + 5)
                 else:
-                    raise Exception(f"Estado de descarga: {response.status_code}")
+                    print(f"!!! Error al descargar imagen: Código {response.status_code}")
+                    # Puedes dibujar un cuadro de error si lo deseas
+                    y_cursor -= (40 + 5)
             except Exception as e:
-                print(f"!!! ERROR al procesar imagen {url}: {e}")
+                print(f"!!! EXCEPCIÓN al procesar imagen {url}: {e}")
                 y_cursor -= (40 + 5)
 
-    if not os.path.exists('temp_images'): os.makedirs('temp_images')
+    # Ya no necesitas crear ni limpiar la carpeta 'temp_images'
     add_image_gallery(report_data.get('Fotos_antes', []), x_start=26, y_top=545, image_width=260, image_height=156)
     add_image_gallery(report_data.get('Fotos_despues', []), x_start=294, y_top=545, image_width=274, image_height=156)
 
+    # --- Fusión y guardado del PDF (sin cambios) ---
     can.save()
     packet.seek(0)
     new_pdf_content = PdfReader(packet)
+    # ... (el resto de la función es idéntica)
     existing_pdf_template = PdfReader(open(template_path, "rb"))
     output = PdfWriter()
     page = existing_pdf_template.pages[0]
