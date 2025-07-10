@@ -130,21 +130,21 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
         text_object.textLine(line)
     can.drawText(text_object)
 
-    def add_image_gallery(urls, x_start, y_top, image_width, image_height):
+    def add_image_gallery(image_paths, x_start, y_top, image_width, image_height):
+        # PISTA: ¿Qué lista de rutas de archivo recibió esta función?
+        print(f"Función add_image_gallery recibió rutas: {image_paths}")
         y_cursor = y_top
-        for url in urls:
+        for path in image_paths:
             try:
-                response = requests.get(url, auth=(account_sid, auth_token), timeout=20)
-                if response.status_code == 200:
-                    temp_path = os.path.join('temp_images', str(uuid.uuid4()))
-                    with open(temp_path, 'wb') as f: f.write(response.content)
-                    can.drawImage(temp_path, x_start, y_cursor - image_height, width=image_width, height=image_height, mask='auto', preserveAspectRatio=False)
-                    y_cursor -= (image_height + 5)
-                else:
-                    raise Exception(f"Estado de descarga: {response.status_code}")
+                # PISTA: ¿Qué archivo estamos intentando dibujar en el PDF?
+                print(f"Intentando dibujar imagen desde la ruta: {path}")
+                can.drawImage(path, x_start, y_cursor - image_height, width=image_width, height=image_height, mask='auto', preserveAspectRatio=False)
+                print("... Dibujado con ÉXITO.")
             except Exception as e:
-                print(f"!!! ERROR al procesar imagen {url}: {e}")
+                # PISTA CLAVE: Si hay un error aquí, es problema de ReportLab o del archivo.
+                print(f"!!! ERROR FATAL al dibujar la imagen {path}: {e}")
                 y_cursor -= (40 + 5)
+
 
     if not os.path.exists('temp_images'): os.makedirs('temp_images')
     add_image_gallery(report_data.get('Fotos_antes', []), x_start=26, y_top=545, image_width=260, image_height=156)
@@ -242,16 +242,48 @@ def whatsapp_reply():
             resp.message(question)
 
     elif 'fotos' in current_state:
+        print("--- Entrando al bloque de FOTOS ---")
         photo_key = flow_step['key']
         if photo_key not in session['report_data']:
             session['report_data'][photo_key] = []
 
         current_photo_count = len(session['report_data'][photo_key])
+        
+        # PISTA: ¿Estamos recibiendo las URLs de Twilio?
+        print(f"MEDIA RECIBIDO: {media_urls}")
 
         if media_urls:
             if current_photo_count < MAX_PHOTOS:
-                photos_to_add = media_urls[:MAX_PHOTOS - current_photo_count]
-                session['report_data'][photo_key].extend(photos_to_add)
+                if not os.path.exists('temp_images'):
+                    os.makedirs('temp_images')
+                    print("Directorio 'temp_images' CREADO.")
+
+                for url in media_urls:
+                    if len(session['report_data'][photo_key]) < MAX_PHOTOS:
+                        try:
+                            # PISTA: ¿A dónde estamos pidiendo la imagen?
+                            print(f"Intentando descargar desde: {url}")
+                            response = requests.get(url, auth=(account_sid, auth_token), timeout=20)
+                            
+                            # PISTA CLAVE: ¿La descarga fue exitosa? (200 = OK)
+                            print(f"Respuesta de descarga - Status: {response.status_code}")
+                            
+                            if response.status_code == 200:
+                                temp_filename = f"{uuid.uuid4()}.jpg"
+                                temp_path = os.path.join('temp_images', temp_filename)
+                                with open(temp_path, 'wb') as f:
+                                    f.write(response.content)
+                                # PISTA: ¿Dónde se guardó la imagen?
+                                print(f"Imagen guardada en: {temp_path}")
+                                session['report_data'][photo_key].append(temp_path)
+                            else:
+                                print(f"¡ERROR! No se pudo descargar la imagen. Status: {response.status_code}")
+                        except Exception as e:
+                            print(f"¡EXCEPCIÓN al descargar imagen {url}: {e}")
+
+                # PISTA: ¿Qué rutas se guardaron en la sesión?
+                print(f"Rutas guardadas en sesión para '{photo_key}': {session['report_data'][photo_key]}")
+
                 new_photo_count = len(session['report_data'][photo_key])
                 if new_photo_count >= MAX_PHOTOS:
                     resp.message(f"Límite de {MAX_PHOTOS} fotos alcanzado. ✅")
@@ -259,7 +291,9 @@ def whatsapp_reply():
                     if question: resp.message(question)
                 else:
                     resp.message(f"Foto {new_photo_count} de {MAX_PHOTOS} recibida. Envía otra o escribe 'listo'.")
+        
         elif 'listo' in incoming_msg_lower:
+            print(f"Usuario escribió 'listo'. Avanzando del estado {current_state}.")
             question = advance_state(session, current_state, flow_step['next_state'])
             if question: resp.message(question)
         else:
