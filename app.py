@@ -67,7 +67,7 @@ def create_reporte1_pdf(report_data):
     
     # --- CAMBIO CLAVE 1 ---
     # Altura fija de cada celda ajustada a 36 píxeles.
-    cell_height = 37
+    cell_height = 38
     
     item_count = 1
 
@@ -110,11 +110,11 @@ def create_reporte1_pdf(report_data):
 
     grand_total = report_data.get('grand_total', 0)
     can.setFont("Helvetica-Bold", 10)
-    can.drawString(507, 250, f"${grand_total:,.2f}")
+    can.drawString(507, 246, f"${grand_total:,.2f}")
     
     can.setFont("Helvetica", 9)
     comments = report_data.get('Comentarios de seguridad', '')
-    text_object_comments = can.beginText(35, 220)
+    text_object_comments = can.beginText(35, 219)
     text_object_comments.setFont("Helvetica", 9)
     comment_lines = simpleSplit(comments, "Helvetica", 9, 250)
     for line in comment_lines:
