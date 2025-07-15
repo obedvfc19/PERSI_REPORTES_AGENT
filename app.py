@@ -42,7 +42,7 @@ REPORT_FLOW = {
 ## Funciones de Creación de PDF
 
 def create_reporte1_pdf(report_data):
-    template_path = "REPORTE1.pdf"
+    template_path = "REPORTE1_2.pdf"
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=letter)
     can.setFont("Helvetica", 9)
@@ -59,17 +59,23 @@ def create_reporte1_pdf(report_data):
     can.setFont("Helvetica-Bold", 11)
     can.drawString(430, 735, str(report_data.get('Folio', '')))
     
-    # --- INICIO DE LA LÓGICA MODIFICADA ---
-
-    # Se establece la fuente para el cuerpo de la tabla
     can.setFont("Helvetica", 8)
 
-    y_position = 656  # Posición Y inicial para la primera partida
-    line_height = 12  # Altura de cada renglón
+    # --- INICIO DE LA LÓGICA MODIFICADA ---
+
+    initial_y_position = 656  # Posición Y fija para la PRIMERA partida
+    
+    # --- CAMBIO CLAVE 1 ---
+    # Altura fija de cada celda ajustada a 36 píxeles.
+    cell_height = 36
+    
     item_count = 1
 
     for partida in report_data.get('Partidas', []):
-        # Dibuja los datos que son de una sola línea primero
+        # Calcula la posición Y superior para la partida ACTUAL
+        y_position = initial_y_position - ((item_count - 1) * cell_height)
+
+        # Dibuja los datos de una sola línea en la posición calculada
         can.drawString(38, y_position, str(item_count))
         can.drawString(360, y_position, str(partida.get('um', '')))
         can.drawString(400, y_position, str(partida.get('cantidad', '')))
@@ -84,22 +90,19 @@ def create_reporte1_pdf(report_data):
         can.drawString(455, y_position, f"${pu_val:,.2f}")
         can.drawString(507, y_position, f"${total_val:,.2f}")
 
-        # Procesa y dibuja la descripción (que puede tener múltiples líneas)
+        # Dibuja la descripción de múltiples líneas
         descripcion_text = str(partida.get('descripcion', ''))
-        max_width = 500  # Ancho máximo en píxeles para la columna de descripción
+        max_width = 250
         lines = simpleSplit(descripcion_text, "Helvetica", 8, max_width)
 
         text_object = can.beginText(70, y_position)
         text_object.setFont("Helvetica", 8)
-        for line in lines:
+        
+        # --- CAMBIO CLAVE 2 ---
+        # Limita el número de líneas a 3 para no salirse de la celda de 36px.
+        for line in lines[:3]:
             text_object.textLine(line)
         can.drawText(text_object)
-        
-        # Calcula cuánto espacio vertical ocupó la partida actual
-        # y actualiza la posición para la siguiente
-        num_lines = len(lines)
-        space_occupied = max(1, num_lines) * line_height # Ocupa al menos un renglón
-        y_position -= space_occupied
         
         item_count += 1
     
