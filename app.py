@@ -58,40 +58,65 @@ def create_reporte1_pdf(report_data):
 
     can.setFont("Helvetica-Bold", 11)
     can.drawString(430, 735, str(report_data.get('Folio', '')))
+    
+    # --- INICIO DE LA LÓGICA MODIFICADA ---
+
+    # Se establece la fuente para el cuerpo de la tabla
     can.setFont("Helvetica", 8)
 
-    y_position = 656
-    line_height = 12
+    y_position = 656  # Posición Y inicial para la primera partida
+    line_height = 12  # Altura de cada renglón
     item_count = 1
 
     for partida in report_data.get('Partidas', []):
+        # Dibuja los datos que son de una sola línea primero
+        can.drawString(38, y_position, str(item_count))
+        can.drawString(360, y_position, str(partida.get('um', '')))
+        can.drawString(400, y_position, str(partida.get('cantidad', '')))
+        
         try:
             pu_val = float(partida.get('pu', 0))
             total_val = float(partida.get('total', 0))
         except (ValueError, TypeError):
             pu_val = 0
             total_val = 0
-        can.drawString(38, y_position, str(item_count))
-        can.drawString(70, y_position, str(partida.get('descripcion', '')))
-        can.drawString(360, y_position, str(partida.get('um', '')))
-        can.drawString(400, y_position, str(partida.get('cantidad', '')))
+        
         can.drawString(455, y_position, f"${pu_val:,.2f}")
         can.drawString(507, y_position, f"${total_val:,.2f}")
-        y_position -= line_height
+
+        # Procesa y dibuja la descripción (que puede tener múltiples líneas)
+        descripcion_text = str(partida.get('descripcion', ''))
+        max_width = 500  # Ancho máximo en píxeles para la columna de descripción
+        lines = simpleSplit(descripcion_text, "Helvetica", 8, max_width)
+
+        text_object = can.beginText(70, y_position)
+        text_object.setFont("Helvetica", 8)
+        for line in lines:
+            text_object.textLine(line)
+        can.drawText(text_object)
+        
+        # Calcula cuánto espacio vertical ocupó la partida actual
+        # y actualiza la posición para la siguiente
+        num_lines = len(lines)
+        space_occupied = max(1, num_lines) * line_height # Ocupa al menos un renglón
+        y_position -= space_occupied
+        
         item_count += 1
+    
+    # --- FIN DE LA LÓGICA MODIFICADA ---
 
     grand_total = report_data.get('grand_total', 0)
     can.setFont("Helvetica-Bold", 10)
     can.drawString(515, 398, f"${grand_total:,.2f}")
+    
     can.setFont("Helvetica", 9)
-
     comments = report_data.get('Comentarios de seguridad', '')
-    text_object = can.beginText(35, 260)
-    text_object.setFont("Helvetica", 9)
-    lines = simpleSplit(comments, "Helvetica", 9, 250)
-    for line in lines:
-        text_object.textLine(line)
-    can.drawText(text_object)
+    text_object_comments = can.beginText(35, 260)
+    text_object_comments.setFont("Helvetica", 9)
+    comment_lines = simpleSplit(comments, "Helvetica", 9, 250)
+    for line in comment_lines:
+        text_object_comments.textLine(line)
+    can.drawText(text_object_comments)
 
     can.save()
     packet.seek(0)
