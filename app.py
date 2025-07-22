@@ -45,8 +45,9 @@ def create_reporte1_pdf(report_data):
     template_path = "REPORTE1_3.pdf"
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=letter)
-    can.setFont("Helvetica", 9)
 
+    # --- Dibuja los datos del encabezado (sin cambios) ---
+    can.setFont("Helvetica", 9)
     can.drawString(95, 723, str(report_data.get('Area de trabajo', '')))
     can.drawString(60, 711, str(report_data.get('Lugar', '')))
     can.drawString(400, 723, str(report_data.get('Fecha', '')))
@@ -56,55 +57,68 @@ def create_reporte1_pdf(report_data):
     can.drawString(28, 690, str(report_data.get('Trabajadores', '')))
     can.drawString(535, 711, str(report_data.get('Duracion de trabajo', '')))
 
-    can.setFont("Helvetica", 8)
+    # --- LÓGICA CORREGIDA PARA PARTIDAS CON CELDA FIJA ---
     initial_y_position = 656
-    cell_height = 74 # Altura de celda (ajusta según necesites)
+    cell_height = 74      # Altura de celda fija, como lo solicitaste.
     item_count = 1
+    
+    # Padding para que el texto no quede pegado al borde superior de la celda.
+    padding_top = 10 
 
     for partida in report_data.get('Partidas', []):
+        # 1. Calcula la posición Y para el inicio de la celda actual.
         y_position = initial_y_position - ((item_count - 1) * cell_height)
+        
+        # Posición Y para el texto, aplicando el padding superior.
+        text_y_start = y_position - padding_top
 
-        # Dibuja los datos de una sola línea
-        can.drawString(38, y_position, str(item_count))
-        can.drawString(345, y_position, str(partida.get('um', '')))
-        can.drawString(400, y_position, str(partida.get('cantidad', '')))
+        # 2. Dibuja los datos de una sola línea (cantidad, precio, etc.).
+        can.setFont("Helvetica", 9)
+        can.drawString(38, text_y_start, str(item_count))
+        can.drawString(345, text_y_start, str(partida.get('um', '')))
+        can.drawString(400, text_y_start, str(partida.get('cantidad', '')))
         try:
             pu_val = float(partida.get('pu', 0))
             total_val = float(partida.get('total', 0))
         except (ValueError, TypeError):
             pu_val = 0
             total_val = 0
-        can.drawString(455, y_position, f"${pu_val:,.2f}")
-        can.drawString(507, y_position, f"${total_val:,.2f}")
+        can.drawString(455, text_y_start, f"${pu_val:,.2f}")
+        can.drawString(507, text_y_start, f"${total_val:,.2f}")
 
-        # --- LÓGICA CORRECTA PARA AJUSTE DE TEXTO ---
+        # 3. Procesa y dibuja la descripción con ajuste de línea.
         descripcion_text = str(partida.get('descripcion', ''))
-        max_width = 250 # Ancho máximo de la columna de descripción
+        max_width = 250  # Límite de ancho que solicitaste para la descripción.
+        
+        # Divide el texto en renglones que no superen el ancho máximo.
         lines = simpleSplit(descripcion_text, "Helvetica", 8, max_width)
 
-        text_object = can.beginText(70, y_position)
+        # Inicia un objeto de texto en la posición correcta.
+        text_object = can.beginText(70, text_y_start)
         text_object.setFont("Helvetica", 8)
         
-        # Dibuja hasta 6 líneas, asegurando que no se desborde
+        # Dibuja hasta un MÁXIMO de 6 renglones.
         for line in lines[:6]:
             text_object.textLine(line)
         can.drawText(text_object)
         
         item_count += 1
     
+    # --- Dibuja los totales y comentarios (sin cambios) ---
     grand_total = report_data.get('grand_total', 0)
     can.setFont("Helvetica-Bold", 10)
     can.drawString(507, 213, f"${grand_total:,.2f}")
     
     can.setFont("Helvetica", 9)
     comments = report_data.get('Comentarios de seguridad', '')
-    text_object_comments = can.beginText(35, 180)
+    text_object_comments = can.beginText(35, 190)
     text_object_comments.setFont("Helvetica", 9)
     comment_lines = simpleSplit(comments, "Helvetica", 9, 250)
     for line in comment_lines:
         text_object_comments.textLine(line)
     can.drawText(text_object_comments)
 
+    # --- Guardado del PDF (sin cambios) ---
     can.save()
     packet.seek(0)
     new_pdf_content = PdfReader(packet)
