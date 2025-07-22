@@ -55,27 +55,26 @@ def create_reporte1_pdf(report_data):
     can.drawString(405, 698, str(report_data.get('Usuario Calidra', '')))
     can.drawString(28, 690, str(report_data.get('Trabajadores', '')))
     can.drawString(535, 711, str(report_data.get('Duracion de trabajo', '')))
-
-    can.setFont("Helvetica-Bold", 11)
-    can.drawString(430, 735, str(report_data.get('Folio', '')))
+    
+    # --- AJUSTE 3: Se elimina el folio del PDF ---
+    # La siguiente línea ha sido comentada para que no se dibuje el folio.
+    # can.setFont("Helvetica-Bold", 11)
+    # can.drawString(430, 735, str(report_data.get('Folio', '')))
     
     can.setFont("Helvetica", 8)
 
-    # --- INICIO DE LA LÓGICA MODIFICADA ---
-
-    initial_y_position = 656  # Posición Y fija para la PRIMERA partida
+    initial_y_position = 656
     
-    # --- CAMBIO CLAVE 1 ---
-    # Altura fija de cada celda ajustada a 36 píxeles.
-    cell_height = 38
+    # --- AJUSTE 1: Aumentamos la altura de la celda ---
+    # Ahora cada celda mide 60px de alto, suficiente para 5 renglones.
+    # Puedes ajustar este valor según necesites.
+    cell_height = 60
     
     item_count = 1
 
     for partida in report_data.get('Partidas', []):
-        # Calcula la posición Y superior para la partida ACTUAL
         y_position = initial_y_position - ((item_count - 1) * cell_height)
 
-        # Dibuja los datos de una sola línea en la posición calculada
         can.drawString(38, y_position, str(item_count))
         can.drawString(345, y_position, str(partida.get('um', '')))
         can.drawString(400, y_position, str(partida.get('cantidad', '')))
@@ -90,7 +89,6 @@ def create_reporte1_pdf(report_data):
         can.drawString(455, y_position, f"${pu_val:,.2f}")
         can.drawString(507, y_position, f"${total_val:,.2f}")
 
-        # Dibuja la descripción de múltiples líneas
         descripcion_text = str(partida.get('descripcion', ''))
         max_width = 250
         lines = simpleSplit(descripcion_text, "Helvetica", 8, max_width)
@@ -98,15 +96,13 @@ def create_reporte1_pdf(report_data):
         text_object = can.beginText(70, y_position)
         text_object.setFont("Helvetica", 8)
         
-        # --- CAMBIO CLAVE 2 ---
-        # Limita el número de líneas a 3 para no salirse de la celda de 36px.
-        for line in lines[:3]:
+        # --- AJUSTE 2: Aumentamos el límite de renglones ---
+        # Ahora se permiten hasta 5 renglones por descripción.
+        for line in lines[:5]:
             text_object.textLine(line)
         can.drawText(text_object)
         
         item_count += 1
-    
-    # --- FIN DE LA LÓGICA MODIFICADA ---
 
     grand_total = report_data.get('grand_total', 0)
     can.setFont("Helvetica-Bold", 10)
@@ -159,24 +155,14 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
     can.drawText(text_object)
 
     def add_image_gallery(image_paths, x_start, y_top, image_width, image_height):
-        # PISTA: ¿Qué lista de rutas de archivo recibió esta función?
-        print(f"Función add_image_gallery recibió rutas: {image_paths}")
         y_cursor = y_top
         for path in image_paths:
             try:
-                # PISTA: ¿Qué archivo estamos intentando dibujar en el PDF?
-                print(f"Intentando dibujar imagen desde la ruta: {path}")
                 can.drawImage(path, x_start, y_cursor - image_height, width=image_width, height=image_height, mask='auto', preserveAspectRatio=False)
-                print("... Dibujado con ÉXITO.")
             except Exception as e:
-                # PISTA CLAVE: Si hay un error aquí, es problema de ReportLab o del archivo.
                 print(f"!!! ERROR FATAL al dibujar la imagen {path}: {e}")
-
-            # --- CORRECCIÓN ---
-            # Movemos el cursor hacia abajo DESPUÉS de cada intento, haya sido exitoso o no.
-            # Esto asegura que la siguiente imagen se dibuje más abajo.
+            
             y_cursor -= (image_height + 5)
-
 
     if not os.path.exists('temp_images'): os.makedirs('temp_images')
     add_image_gallery(report_data.get('Fotos_antes', []), x_start=26, y_top=545, image_width=260, image_height=156)
@@ -227,11 +213,11 @@ def whatsapp_reply():
         return str(resp)
 
     if sender_id not in user_sessions or 'iniciar' in incoming_msg_lower:
-        folio_number = random.randint(100000, 999999)
+        # --- AJUSTE 3: Se elimina la generación del folio ---
         user_sessions[sender_id] = {
             'state': 'awaiting_start',
             'previous_state': None,
-            'report_data': {'Partidas': [], 'grand_total': 0.0, 'Folio': folio_number},
+            'report_data': {'Partidas': [], 'grand_total': 0.0}, # Ya no se incluye 'Folio'
             'current_partida': {}
         }
 
@@ -274,47 +260,31 @@ def whatsapp_reply():
             resp.message(question)
 
     elif 'fotos' in current_state:
-        print("--- Entrando al bloque de FOTOS ---")
         photo_key = flow_step['key']
         if photo_key not in session['report_data']:
             session['report_data'][photo_key] = []
 
         current_photo_count = len(session['report_data'][photo_key])
-        
-        # PISTA: ¿Estamos recibiendo las URLs de Twilio?
-        print(f"MEDIA RECIBIDO: {media_urls}")
 
         if media_urls:
             if current_photo_count < MAX_PHOTOS:
                 if not os.path.exists('temp_images'):
                     os.makedirs('temp_images')
-                    print("Directorio 'temp_images' CREADO.")
 
                 for url in media_urls:
                     if len(session['report_data'][photo_key]) < MAX_PHOTOS:
                         try:
-                            # PISTA: ¿A dónde estamos pidiendo la imagen?
-                            print(f"Intentando descargar desde: {url}")
                             response = requests.get(url, auth=(account_sid, auth_token), timeout=20)
-                            
-                            # PISTA CLAVE: ¿La descarga fue exitosa? (200 = OK)
-                            print(f"Respuesta de descarga - Status: {response.status_code}")
-                            
                             if response.status_code == 200:
                                 temp_filename = f"{uuid.uuid4()}.jpg"
                                 temp_path = os.path.join('temp_images', temp_filename)
                                 with open(temp_path, 'wb') as f:
                                     f.write(response.content)
-                                # PISTA: ¿Dónde se guardó la imagen?
-                                print(f"Imagen guardada en: {temp_path}")
                                 session['report_data'][photo_key].append(temp_path)
                             else:
                                 print(f"¡ERROR! No se pudo descargar la imagen. Status: {response.status_code}")
                         except Exception as e:
                             print(f"¡EXCEPCIÓN al descargar imagen {url}: {e}")
-
-                # PISTA: ¿Qué rutas se guardaron en la sesión?
-                print(f"Rutas guardadas en sesión para '{photo_key}': {session['report_data'][photo_key]}")
 
                 new_photo_count = len(session['report_data'][photo_key])
                 if new_photo_count >= MAX_PHOTOS:
@@ -325,7 +295,6 @@ def whatsapp_reply():
                     resp.message(f"Foto {new_photo_count} de {MAX_PHOTOS} recibida. Envía otra o escribe 'listo'.")
         
         elif 'listo' in incoming_msg_lower:
-            print(f"Usuario escribió 'listo'. Avanzando del estado {current_state}.")
             question = advance_state(session, current_state, flow_step['next_state'])
             if question: resp.message(question)
         else:
