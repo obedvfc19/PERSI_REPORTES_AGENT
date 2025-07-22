@@ -47,6 +47,7 @@ def create_reporte1_pdf(report_data):
     can = canvas.Canvas(packet, pagesize=letter)
     can.setFont("Helvetica", 9)
 
+    # Dibuja los datos del encabezado
     can.drawString(95, 723, str(report_data.get('Area de trabajo', '')))
     can.drawString(60, 711, str(report_data.get('Lugar', '')))
     can.drawString(400, 723, str(report_data.get('Fecha', '')))
@@ -55,26 +56,17 @@ def create_reporte1_pdf(report_data):
     can.drawString(405, 698, str(report_data.get('Usuario Calidra', '')))
     can.drawString(28, 690, str(report_data.get('Trabajadores', '')))
     can.drawString(535, 711, str(report_data.get('Duracion de trabajo', '')))
-    
-    # --- AJUSTE 3: Se elimina el folio del PDF ---
-    # La siguiente línea ha sido comentada para que no se dibuje el folio.
-    # can.setFont("Helvetica-Bold", 11)
-    # can.drawString(430, 735, str(report_data.get('Folio', '')))
-    
-    can.setFont("Helvetica", 8)
 
+    # Dibuja la tabla de partidas con formato de celda fija
+    can.setFont("Helvetica", 8)
     initial_y_position = 656
-    
-    # --- AJUSTE 1: Aumentamos la altura de la celda ---
-    # Ahora cada celda mide 60px de alto, suficiente para 5 renglones.
-    # Puedes ajustar este valor según necesites.
-    cell_height = 60
-    
+    cell_height = 60  # Altura de celda para ~5 renglones
     item_count = 1
 
     for partida in report_data.get('Partidas', []):
         y_position = initial_y_position - ((item_count - 1) * cell_height)
 
+        # Dibuja los datos de una sola línea
         can.drawString(38, y_position, str(item_count))
         can.drawString(345, y_position, str(partida.get('um', '')))
         can.drawString(400, y_position, str(partida.get('cantidad', '')))
@@ -89,6 +81,7 @@ def create_reporte1_pdf(report_data):
         can.drawString(455, y_position, f"${pu_val:,.2f}")
         can.drawString(507, y_position, f"${total_val:,.2f}")
 
+        # Dibuja la descripción con ajuste de texto
         descripcion_text = str(partida.get('descripcion', ''))
         max_width = 250
         lines = simpleSplit(descripcion_text, "Helvetica", 8, max_width)
@@ -96,14 +89,13 @@ def create_reporte1_pdf(report_data):
         text_object = can.beginText(70, y_position)
         text_object.setFont("Helvetica", 8)
         
-        # --- AJUSTE 2: Aumentamos el límite de renglones ---
-        # Ahora se permiten hasta 5 renglones por descripción.
-        for line in lines[:5]:
+        for line in lines[:5]: # Límite de 5 renglones por celda
             text_object.textLine(line)
         can.drawText(text_object)
         
         item_count += 1
-
+    
+    # Dibuja los totales y comentarios
     grand_total = report_data.get('grand_total', 0)
     can.setFont("Helvetica-Bold", 10)
     can.drawString(507, 245, f"${grand_total:,.2f}")
@@ -117,6 +109,7 @@ def create_reporte1_pdf(report_data):
         text_object_comments.textLine(line)
     can.drawText(text_object_comments)
 
+    # Guarda y fusiona el PDF
     can.save()
     packet.seek(0)
     new_pdf_content = PdfReader(packet)
@@ -137,6 +130,7 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
     can = canvas.Canvas(packet, pagesize=letter)
     can.setFont("Helvetica", 9)
 
+    # Dibuja los datos del encabezado
     can.drawString(92, 755, str(report_data.get('Area de trabajo', '')))
     can.drawString(55, 743, str(report_data.get('Lugar', '')))
     can.drawString(370, 755, str(report_data.get('Fecha', '')))
@@ -146,6 +140,7 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
     can.drawString(25, 722, str(report_data.get('Trabajadores', '')))
     can.drawString(508, 743, str(report_data.get('Duracion de trabajo', '')))
 
+    # Dibuja la descripción general
     description = report_data.get('Descripcion general', '')
     text_object = can.beginText(30, 687)
     text_object.setFont("Helvetica", 9)
@@ -154,20 +149,20 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
         text_object.textLine(line)
     can.drawText(text_object)
 
+    # Función para dibujar las galerías de imágenes
     def add_image_gallery(image_paths, x_start, y_top, image_width, image_height):
         y_cursor = y_top
         for path in image_paths:
             try:
                 can.drawImage(path, x_start, y_cursor - image_height, width=image_width, height=image_height, mask='auto', preserveAspectRatio=False)
             except Exception as e:
-                print(f"!!! ERROR FATAL al dibujar la imagen {path}: {e}")
-            
+                print(f"!!! ERROR al dibujar la imagen {path}: {e}")
             y_cursor -= (image_height + 5)
 
-    if not os.path.exists('temp_images'): os.makedirs('temp_images')
     add_image_gallery(report_data.get('Fotos_antes', []), x_start=26, y_top=545, image_width=260, image_height=156)
     add_image_gallery(report_data.get('Fotos_despues', []), x_start=294, y_top=545, image_width=274, image_height=156)
 
+    # Guarda y fusiona el PDF
     can.save()
     packet.seek(0)
     new_pdf_content = PdfReader(packet)
@@ -194,6 +189,7 @@ def whatsapp_reply():
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
     MAX_PHOTOS = 2
 
+    # Lógica para retroceder en la conversación
     if incoming_msg_lower == 'repetir':
         if sender_id in user_sessions:
             session = user_sessions[sender_id]
@@ -212,12 +208,12 @@ def whatsapp_reply():
                     resp.message(question)
         return str(resp)
 
+    # Inicia una nueva sesión si no existe o si el usuario escribe "iniciar"
     if sender_id not in user_sessions or 'iniciar' in incoming_msg_lower:
-        # --- AJUSTE 3: Se elimina la generación del folio ---
         user_sessions[sender_id] = {
             'state': 'awaiting_start',
             'previous_state': None,
-            'report_data': {'Partidas': [], 'grand_total': 0.0}, # Ya no se incluye 'Folio'
+            'report_data': {'Partidas': [], 'grand_total': 0.0}, # Versión sin Folio
             'current_partida': {}
         }
 
@@ -230,6 +226,7 @@ def whatsapp_reply():
         session['state'] = next_state_key
         return REPORT_FLOW[next_state_key].get('question')
 
+    # Manejo de la lógica de partidas
     if 'partida' in current_state:
         if current_state == 'awaiting_next_partida':
             if 'listo' in incoming_msg_lower:
@@ -259,6 +256,7 @@ def whatsapp_reply():
             question = advance_state(session, current_state, next_state_key)
             resp.message(question)
 
+    # Manejo de la lógica de fotos
     elif 'fotos' in current_state:
         photo_key = flow_step['key']
         if photo_key not in session['report_data']:
@@ -271,6 +269,7 @@ def whatsapp_reply():
                 if not os.path.exists('temp_images'):
                     os.makedirs('temp_images')
 
+                # Descarga inmediata de imágenes
                 for url in media_urls:
                     if len(session['report_data'][photo_key]) < MAX_PHOTOS:
                         try:
@@ -282,7 +281,7 @@ def whatsapp_reply():
                                     f.write(response.content)
                                 session['report_data'][photo_key].append(temp_path)
                             else:
-                                print(f"¡ERROR! No se pudo descargar la imagen. Status: {response.status_code}")
+                                print(f"¡ERROR! No se pudo descargar imagen. Status: {response.status_code}")
                         except Exception as e:
                             print(f"¡EXCEPCIÓN al descargar imagen {url}: {e}")
 
@@ -300,20 +299,24 @@ def whatsapp_reply():
         else:
             resp.message(f'Por favor, envía una foto (máximo {MAX_PHOTOS}) o escribe "listo".')
 
+        # Si se completa el flujo, genera y envía los PDFs
         if session['state'] == 'report_complete':
             try:
                 pdf1_path = create_reporte1_pdf(session['report_data'])
                 pdf1_url = url_for('static', filename=pdf1_path, _external=True)
                 resp.message().media(pdf1_url)
+                
                 pdf2_path = create_reporte2_pdf(session['report_data'], account_sid, auth_token)
                 pdf2_url = url_for('static', filename=pdf2_path, _external=True)
                 resp.message().media(pdf2_url)
+                
                 if os.path.exists('temp_images'):
                     for f in os.listdir('temp_images'): os.remove(os.path.join('temp_images', f))
             except Exception as e:
                 print(f"!!! ERROR FATAL al crear o enviar PDFs: {e}")
                 resp.message("Lo siento, tuve un problema crítico al generar tus reportes en PDF.")
 
+    # Lógica para el resto de la conversación
     else:
         if current_state == 'report_complete':
              resp.message("Reportes ya completados. Escribe 'iniciar' para comenzar de nuevo.")
