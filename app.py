@@ -42,7 +42,7 @@ REPORT_FLOW = {
 ## Funciones de Creación de PDF
 
 def create_reporte1_pdf(report_data):
-    template_path = "REPORTE1_2.pdf"
+    template_path = "REPORTE1_3.pdf"
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=letter)
     can.setFont("Helvetica", 9)
