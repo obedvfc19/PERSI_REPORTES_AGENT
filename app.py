@@ -64,7 +64,7 @@ def create_reporte1_pdf(report_data):
     can.drawString(28, 690, str(report_data.get('Trabajadores', '')))
     can.drawString(535, 711, str(report_data.get('Duracion de trabajo', '')))
 
-    initial_y_position = 656
+    initial_y_position = 663
     cell_height = 74
     item_count = 1
 
@@ -105,7 +105,7 @@ def create_reporte1_pdf(report_data):
     
     p_comments = Paragraph(comments, style_comments)
     p_comments_width, p_comments_height = p_comments.wrapOn(can, 540, 60)
-    p_comments.drawOn(can, 35, 180 - p_comments_height)
+    p_comments.drawOn(can, 35, 195 - p_comments_height)
 
     can.save()
     packet.seek(0)
