@@ -53,6 +53,7 @@ def create_reporte1_pdf(report_data):
     style_normal.fontSize = 8
     style_normal.leading = 10 
 
+    # --- Dibuja todo el contenido en el canvas ---
     can.setFont("Helvetica", 9)
     can.drawString(95, 723, str(report_data.get('Area de trabajo', '')))
     can.drawString(60, 711, str(report_data.get('Lugar', '')))
@@ -108,15 +109,23 @@ def create_reporte1_pdf(report_data):
 
     can.save()
     packet.seek(0)
+    
+    # --- Lógica de fusión y guardado ---
     new_pdf_content = PdfReader(packet)
     existing_pdf_template = PdfReader(open(template_path, "rb"))
     output = PdfWriter()
+    
     page = existing_pdf_template.pages[0]
     page.merge_page(new_pdf_content.pages[0])
+    
+    # ✅ LÍNEA CORREGIDA: Se añade la página al archivo final
+    output.add_page(page)
+    
     if not os.path.exists('static/reports'): os.makedirs('static/reports')
     pdf_filename = f'reporte_cotizacion_{uuid.uuid4()}.pdf'
     pdf_path = os.path.join(app.static_folder, 'reports', pdf_filename)
-    with open(pdf_path, "wb") as outputStream: output.write(outputStream)
+    with open(pdf_path, "wb") as outputStream:
+        output.write(outputStream)
     return os.path.join('reports', pdf_filename).replace('\\', '/')
 
 def create_reporte2_pdf(report_data, account_sid, auth_token):
@@ -130,6 +139,7 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
     style_desc.fontSize = 9
     style_desc.leading = 11
 
+    # --- Dibuja todo el contenido en el canvas ---
     can.setFont("Helvetica", 9)
     can.drawString(92, 755, str(report_data.get('Area de trabajo', '')))
     can.drawString(55, 743, str(report_data.get('Lugar', '')))
@@ -161,15 +171,23 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
 
     can.save()
     packet.seek(0)
+
+    # --- Lógica de fusión y guardado ---
     new_pdf_content = PdfReader(packet)
     existing_pdf_template = PdfReader(open(template_path, "rb"))
     output = PdfWriter()
+
     page = existing_pdf_template.pages[0]
     page.merge_page(new_pdf_content.pages[0])
+    
+    # ✅ LÍNEA CORREGIDA: Se añade la página al archivo final
+    output.add_page(page)
+
     if not os.path.exists('static/reports'): os.makedirs('static/reports')
     pdf_filename = f'reporte_actividades_{uuid.uuid4()}.pdf'
     pdf_path = os.path.join(app.static_folder, 'reports', pdf_filename)
-    with open(pdf_path, "wb") as outputStream: output.write(outputStream)
+    with open(pdf_path, "wb") as outputStream:
+        output.write(outputStream)
     return os.path.join('reports', pdf_filename).replace('\\', '/')
 
 
