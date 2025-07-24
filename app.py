@@ -8,7 +8,8 @@ from twilio.twiml.messaging_response import MessagingResponse
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.utils import simpleSplit
+from reportlab.platypus import Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 from dotenv import load_dotenv
 
 # --- 0. INICIALIZACIÓN Y CARGA DE CREDENCIALES ---
@@ -45,8 +46,14 @@ def create_reporte1_pdf(report_data):
     template_path = "REPORTE1_3.pdf"
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=letter)
-    can.setFont("Helvetica", 9)
+    
+    styles = getSampleStyleSheet()
+    style_normal = styles['Normal']
+    style_normal.fontName = 'Helvetica'
+    style_normal.fontSize = 8
+    style_normal.leading = 10 
 
+    can.setFont("Helvetica", 9)
     can.drawString(95, 723, str(report_data.get('Area de trabajo', '')))
     can.drawString(60, 711, str(report_data.get('Lugar', '')))
     can.drawString(400, 723, str(report_data.get('Fecha', '')))
@@ -56,39 +63,32 @@ def create_reporte1_pdf(report_data):
     can.drawString(28, 690, str(report_data.get('Trabajadores', '')))
     can.drawString(535, 711, str(report_data.get('Duracion de trabajo', '')))
 
-    can.setFont("Helvetica", 8)
     initial_y_position = 656
-    cell_height = 74 # Altura de celda (ajusta según necesites)
+    cell_height = 74
     item_count = 1
 
     for partida in report_data.get('Partidas', []):
         y_position = initial_y_position - ((item_count - 1) * cell_height)
-
-        # Dibuja los datos de una sola línea
-        can.drawString(38, y_position, str(item_count))
-        can.drawString(345, y_position, str(partida.get('um', '')))
-        can.drawString(400, y_position, str(partida.get('cantidad', '')))
+        
+        can.setFont("Helvetica", 9)
+        can.drawString(38, y_position - 10, str(item_count))
+        can.drawString(345, y_position - 10, str(partida.get('um', '')))
+        can.drawString(400, y_position - 10, str(partida.get('cantidad', '')))
         try:
             pu_val = float(partida.get('pu', 0))
             total_val = float(partida.get('total', 0))
         except (ValueError, TypeError):
             pu_val = 0
             total_val = 0
-        can.drawString(455, y_position, f"${pu_val:,.2f}")
-        can.drawString(507, y_position, f"${total_val:,.2f}")
+        can.drawString(455, y_position - 10, f"${pu_val:,.2f}")
+        can.drawString(507, y_position - 10, f"${total_val:,.2f}")
 
-        # --- LÓGICA CORRECTA PARA AJUSTE DE TEXTO ---
         descripcion_text = str(partida.get('descripcion', ''))
-        max_width = 250 # Ancho máximo de la columna de descripción
-        lines = simpleSplit(descripcion_text, "Helvetica", 8, max_width)
-
-        text_object = can.beginText(70, y_position)
-        text_object.setFont("Helvetica", 8)
+        max_width = 250
+        p = Paragraph(descripcion_text, style_normal)
         
-        # Dibuja hasta 6 líneas, asegurando que no se desborde
-        for line in lines[:6]:
-            text_object.textLine(line)
-        can.drawText(text_object)
+        p_width, p_height = p.wrapOn(can, max_width, cell_height)
+        p.drawOn(can, 70, y_position - p_height - 5)
         
         item_count += 1
     
@@ -96,14 +96,15 @@ def create_reporte1_pdf(report_data):
     can.setFont("Helvetica-Bold", 10)
     can.drawString(507, 213, f"${grand_total:,.2f}")
     
-    can.setFont("Helvetica", 9)
     comments = report_data.get('Comentarios de seguridad', '')
-    text_object_comments = can.beginText(35, 180)
-    text_object_comments.setFont("Helvetica", 9)
-    comment_lines = simpleSplit(comments, "Helvetica", 9, 250)
-    for line in comment_lines:
-        text_object_comments.textLine(line)
-    can.drawText(text_object_comments)
+    style_comments = styles['Normal']
+    style_comments.fontName = 'Helvetica'
+    style_comments.fontSize = 9
+    style_comments.leading = 11
+    
+    p_comments = Paragraph(comments, style_comments)
+    p_comments_width, p_comments_height = p_comments.wrapOn(can, 540, 60)
+    p_comments.drawOn(can, 35, 180 - p_comments_height)
 
     can.save()
     packet.seek(0)
@@ -112,7 +113,6 @@ def create_reporte1_pdf(report_data):
     output = PdfWriter()
     page = existing_pdf_template.pages[0]
     page.merge_page(new_pdf_content.pages[0])
-    output.add_page(page)
     if not os.path.exists('static/reports'): os.makedirs('static/reports')
     pdf_filename = f'reporte_cotizacion_{uuid.uuid4()}.pdf'
     pdf_path = os.path.join(app.static_folder, 'reports', pdf_filename)
@@ -123,8 +123,14 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
     template_path = "REPORTE2.pdf"
     packet = io.BytesIO()
     can = canvas.Canvas(packet, pagesize=letter)
-    can.setFont("Helvetica", 9)
+    
+    styles = getSampleStyleSheet()
+    style_desc = styles['Normal']
+    style_desc.fontName = 'Helvetica'
+    style_desc.fontSize = 9
+    style_desc.leading = 11
 
+    can.setFont("Helvetica", 9)
     can.drawString(92, 755, str(report_data.get('Area de trabajo', '')))
     can.drawString(55, 743, str(report_data.get('Lugar', '')))
     can.drawString(370, 755, str(report_data.get('Fecha', '')))
@@ -135,13 +141,11 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
     can.drawString(508, 743, str(report_data.get('Duracion de trabajo', '')))
 
     description = report_data.get('Descripcion general', '')
-    text_object = can.beginText(30, 687)
-    text_object.setFont("Helvetica", 9)
-    lines = simpleSplit(description, "Helvetica", 9, 520)
-    for line in lines:
-        text_object.textLine(line)
-    can.drawText(text_object)
-
+    p_desc = Paragraph(description, style_desc)
+    
+    p_desc_width, p_desc_height = p_desc.wrapOn(can, 520, 100)
+    p_desc.drawOn(can, 30, 687 - p_desc_height)
+    
     def add_image_gallery(image_paths, x_start, y_top, image_width, image_height):
         y_cursor = y_top
         for path in image_paths:
@@ -162,7 +166,6 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
     output = PdfWriter()
     page = existing_pdf_template.pages[0]
     page.merge_page(new_pdf_content.pages[0])
-    output.add_page(page)
     if not os.path.exists('static/reports'): os.makedirs('static/reports')
     pdf_filename = f'reporte_actividades_{uuid.uuid4()}.pdf'
     pdf_path = os.path.join(app.static_folder, 'reports', pdf_filename)
@@ -198,7 +201,6 @@ def whatsapp_reply():
                     resp.message(question)
         return str(resp)
 
-    # --- VERSIÓN CORREGIDA SIN FOLIO ---
     if sender_id not in user_sessions or 'iniciar' in incoming_msg_lower:
         user_sessions[sender_id] = {
             'state': 'awaiting_start',
