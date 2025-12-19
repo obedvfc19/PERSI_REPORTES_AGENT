@@ -1,5 +1,6 @@
 import os
 import requests
+import time 
 import uuid
 import io
 import random
@@ -11,11 +12,16 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 from dotenv import load_dotenv
+import logging
 
 # --- 0. INICIALIZACIÓN Y CARGA DE CREDENCIALES ---
 load_dotenv()
 app = Flask(__name__, static_folder='static')
 user_sessions = {}
+
+# Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- 1. GUION DE LA CONVERSACIÓN ---
 REPORT_FLOW = {
@@ -194,9 +200,26 @@ def create_reporte2_pdf(report_data, account_sid, auth_token):
 @app.route("/whatsapp", methods=['POST'])
 def whatsapp_reply():
     sender_id = request.values.get('From', '')
-    incoming_msg_original = request.values.get('Body', '').strip()
+    incoming_msg_original = request.values.get('Body', '') or ''
+    incoming_msg_original = incoming_msg_original.strip()
     incoming_msg_lower = incoming_msg_original.lower()
-    media_urls = [request.values.get(f'MediaUrl{i}') for i in range(int(request.values.get('NumMedia', 0)))]
+
+    # --- Extracción robusta de Media URLs ---
+    media_urls = []
+    try:
+        # Collect keys like MediaUrl0, MediaUrl1... and sort by index
+        indexed = []
+        for k, v in request.values.items():
+            if k.startswith('MediaUrl') and v:
+                try:
+                    idx = int(k.replace('MediaUrl', ''))
+                except Exception:
+                    idx = 0
+                indexed.append((idx, v))
+        indexed.sort(key=lambda x: x[0])
+        media_urls = [v for _, v in indexed]
+    except Exception:
+        logger.exception('Error extrayendo Media URLs')
     resp = MessagingResponse()
     account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
@@ -264,26 +287,44 @@ def whatsapp_reply():
             resp.message(question)
 
     elif 'fotos' in current_state:
+         
         photo_key = flow_step['key']
         if photo_key not in session['report_data']:
             session['report_data'][photo_key] = []
+        
         current_photo_count = len(session['report_data'][photo_key])
+        
         if media_urls:
             if current_photo_count < MAX_PHOTOS:
                 if not os.path.exists('temp_images'):
                     os.makedirs('temp_images')
+                
                 for url in media_urls:
                     if len(session['report_data'][photo_key]) < MAX_PHOTOS:
-                        try:
-                            response = requests.get(url, auth=(account_sid, auth_token), timeout=30)
-                            if response.status_code == 200:
-                                temp_filename = f"{uuid.uuid4()}.jpg"
-                                temp_path = os.path.join('temp_images', temp_filename)
-                                with open(temp_path, 'wb') as f:
-                                    f.write(response.content)
-                                session['report_data'][photo_key].append(temp_path)
-                        except Exception as e:
-                            print(f"¡EXCEPCIÓN al descargar imagen {url}: {e}")
+                        download_success = False
+                        # --- INICIO DE LÓGICA DE REINTENTOS ---
+                        for intento in range(3):  # Intentar hasta 3 veces
+                            try:
+                                response = requests.get(url, auth=(account_sid, auth_token), timeout=30)
+                                if response.status_code == 200:
+                                    temp_filename = f"{uuid.uuid4()}.jpg"
+                                    temp_path = os.path.join('temp_images', temp_filename)
+                                    with open(temp_path, 'wb') as f:
+                                        f.write(response.content)
+                                    session['report_data'][photo_key].append(temp_path)
+                                    download_success = True
+                                    break  # Éxito, salir del bucle de reintentos
+                                else:
+                                    logger.warning("Intento %d: Status %s para %s", intento + 1, response.status_code, url)
+                            except Exception:
+                                logger.exception('Error descargando %s en intento %d', url, intento + 1)
+                            
+                            time.sleep(1.5)  # Pausa de seguridad para esperar a que Twilio procese el archivo
+                        
+                        if not download_success:
+                            resp.message("⚠️ No se pudo descargar una imagen. Por favor, intenta enviarla de nuevo.")
+                        # --- FIN DE LÓGICA DE REINTENTOS ---
+
                 new_photo_count = len(session['report_data'][photo_key])
                 if new_photo_count >= MAX_PHOTOS:
                     resp.message(f"Límite de {MAX_PHOTOS} fotos alcanzado. ✅")
@@ -291,32 +332,37 @@ def whatsapp_reply():
                     if question: resp.message(question)
                 else:
                     resp.message(f"Foto {new_photo_count} de {MAX_PHOTOS} recibida. Envía otra o escribe 'listo'.")
+        
         elif 'listo' in incoming_msg_lower:
             question = advance_state(session, current_state, flow_step['next_state'])
             if question: resp.message(question)
+        
         else:
             resp.message(f'Por favor, envía una foto (máximo {MAX_PHOTOS}) o escribe "listo".')
+
+        # --- GENERACIÓN DE REPORTES ---
         if session['state'] == 'report_complete':
             try:
                 pdf1_path = create_reporte1_pdf(session['report_data'])
                 pdf1_url = url_for('static', filename=pdf1_path, _external=True)
                 resp.message().media(pdf1_url)
+                
                 pdf2_path = create_reporte2_pdf(session['report_data'], account_sid, auth_token)
                 pdf2_url = url_for('static', filename=pdf2_path, _external=True)
                 resp.message().media(pdf2_url)
+                
+                # Limpieza de temporales
                 if os.path.exists('temp_images'):
-                    for f in os.listdir('temp_images'): os.remove(os.path.join('temp_images', f))
-            except Exception as e:
-                print(f"!!! ERROR FATAL al crear o enviar PDFs: {e}")
+                    for f in os.listdir('temp_images'):
+                        try:
+                            os.remove(os.path.join('temp_images', f))
+                        except:
+                            pass
+            except Exception:
+                logger.exception('ERROR FATAL al crear o enviar PDFs')
                 resp.message("Lo siento, tuve un problema crítico al generar tus reportes en PDF.")
-    else:
-        if current_state == 'report_complete':
-             resp.message("Reportes ya completados. Escribe 'iniciar' para comenzar de nuevo.")
-             return str(resp)
-        session['report_data'][flow_step['key']] = incoming_msg_original
-        question = advance_state(session, current_state, flow_step['next_state'])
-        if question: resp.message(question)
 
+    # Asegurar retorno siempre (fix bug crítico)
     return str(resp)
 
 # --- 4. INICIAR LA APLICACIÓN ---
