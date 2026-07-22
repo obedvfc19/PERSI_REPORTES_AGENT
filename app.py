@@ -1,15 +1,16 @@
 import os
 import requests
 import uuid
-import io
-import random
 from flask import Flask, request, url_for
 from twilio.twiml.messaging_response import MessagingResponse
-from pypdf import PdfReader, PdfWriter
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
+from reportlab.platypus import (
+    BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle,
+    Image, PageBreak, KeepTogether
+)
 from dotenv import load_dotenv
 
 # --- 0. INICIALIZACIÓN Y CARGA DE CREDENCIALES ---
@@ -40,154 +41,278 @@ REPORT_FLOW = {
     'report_complete':          { 'key': 'Completo', 'next_state': 'report_complete', 'question': '¡Reportes completados! ✅ Estoy generando tus PDFs, por favor espera un momento...'}
 }
 
-## Funciones de Creación de PDF
+## Generación de PDF (reconstrucción dinámica con ReportLab)
+# Se genera un ÚNICO PDF que contiene la Cotización y el Reporte de Actividades.
+# Las tablas y bloques de texto crecen automáticamente según su contenido y el
+# documento agrega las páginas que sean necesarias sin cortar información.
 
-def create_reporte1_pdf(report_data):
-    template_path = "REPORTE1_3.pdf"
-    packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=letter)
-    
-    styles = getSampleStyleSheet()
-    style_normal = styles['Normal']
-    style_normal.fontName = 'Helvetica'
-    style_normal.fontSize = 8
-    style_normal.leading = 10 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGO_PATH = os.path.join(BASE_DIR, 'logo_persi.png')
 
-    # --- Dibuja todo el contenido en el canvas ---
-    can.setFont("Helvetica", 9)
-    can.drawString(95, 723, str(report_data.get('Area de trabajo', '')))
-    can.drawString(60, 711, str(report_data.get('Lugar', '')))
-    can.drawString(400, 723, str(report_data.get('Fecha', '')))
-    can.drawString(360, 711, str(report_data.get('O.T.', '')))
-    can.drawString(415, 686, str(report_data.get('Supervisor PERSI', '')))
-    can.drawString(405, 698, str(report_data.get('Usuario Calidra', '')))
-    can.drawString(28, 690, str(report_data.get('Trabajadores', '')))
-    can.drawString(535, 711, str(report_data.get('Duracion de trabajo', '')))
+# Colores muestreados de las plantillas originales
+PDF_GREEN = colors.Color(167 / 255, 235 / 255, 133 / 255)
+PDF_NAVY = colors.Color(41 / 255, 55 / 255, 97 / 255)
 
-    initial_y_position = 663
-    cell_height = 74
-    item_count = 1
+PAGE_W, PAGE_H = A4
+PAGE_MARGIN = 25
+USABLE_W = PAGE_W - 2 * PAGE_MARGIN
 
-    for partida in report_data.get('Partidas', []):
-        y_position = initial_y_position - ((item_count - 1) * cell_height)
-        
-        can.setFont("Helvetica", 9)
-        can.drawString(38, y_position - 10, str(item_count))
-        can.drawString(345, y_position - 10, str(partida.get('um', '')))
-        can.drawString(400, y_position - 10, str(partida.get('cantidad', '')))
+_base_styles = getSampleStyleSheet()
+_S_CELL = ParagraphStyle('cell', parent=_base_styles['Normal'], fontName='Helvetica',
+                         fontSize=8, leading=10)
+_S_CELL_C = ParagraphStyle('cellc', parent=_S_CELL, alignment=TA_CENTER)
+_S_LABEL = ParagraphStyle('label', parent=_base_styles['Normal'], fontName='Helvetica-Bold',
+                          fontSize=9, leading=11)
+_S_VAL = ParagraphStyle('val', parent=_base_styles['Normal'], fontName='Helvetica',
+                        fontSize=9, leading=11)
+_S_BAND = ParagraphStyle('band', parent=_base_styles['Normal'], fontName='Helvetica-Bold',
+                         fontSize=11, leading=13, alignment=TA_CENTER)
+_S_TITLE = ParagraphStyle('title', parent=_base_styles['Normal'], fontName='Helvetica-Bold',
+                          fontSize=16, leading=19, alignment=TA_CENTER)
+_S_COMPANY = ParagraphStyle('company', parent=_base_styles['Normal'], fontName='Helvetica-Bold',
+                            fontSize=7, leading=8.5)
+_S_SIGN = ParagraphStyle('sign', parent=_base_styles['Normal'], fontName='Helvetica-Bold',
+                         fontSize=11, leading=14, alignment=TA_CENTER)
+_S_SIGN_SUB = ParagraphStyle('signsub', parent=_base_styles['Normal'], fontName='Helvetica-Bold',
+                             fontSize=9, leading=12, alignment=TA_CENTER)
+
+
+def _pdf_band(text, width=USABLE_W):
+    t = Table([[Paragraph(text, _S_BAND)]], colWidths=[width])
+    t.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), PDF_GREEN),
+        ('BOX', (0, 0), (-1, -1), 0.8, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    return t
+
+
+def _pdf_header(title_text):
+    company = ("CONSTRUCCIONES Y SERVICIOS PERSI S.A. de C.V.<br/>"
+               "Registro Federal de Contribuyentes CSP160505- J66<br/>"
+               "Calle Arquimedes V. # 1403 col. Tecnologico<br/>"
+               "Monclova Coahuila Mexico Cp. 25716<br/>"
+               "E-mail: persi.ceo@hotmail.com / persi.pro@hotmail.com<br/>"
+               "Tel: Oficina 229-532-47-23 / celular 866-135-80-72")
+    try:
+        logo = Image(LOGO_PATH, width=95, height=75)
+    except Exception:
+        logo = Spacer(95, 75)
+    right = Table([[Paragraph(title_text, _S_TITLE)],
+                   [Paragraph(company, _S_COMPANY)]], colWidths=[USABLE_W - 120])
+    right.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, 0), PDF_GREEN),
+        ('BOX', (0, 0), (0, 0), 0.8, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 1), (0, 1), 2),
+        ('LEFTPADDING', (0, 1), (0, 1), 4),
+    ]))
+    outer = Table([[logo, right]], colWidths=[120, USABLE_W - 120])
+    outer.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('ALIGN', (0, 0), (0, 0), 'CENTER'),
+    ]))
+    return outer
+
+
+def _pdf_info_block(d):
+    def L(t):
+        return Paragraph(t, _S_LABEL)
+
+    def V(t):
+        return Paragraph(str(t if t is not None else ''), _S_VAL)
+
+    c = [70, USABLE_W * 0.30, 78, 70, 95,
+         USABLE_W - (70 + USABLE_W * 0.30 + 78 + 70 + 95)]
+    rows = [
+        [L('FOLIO:'), V(''), '', '', '', ''],
+        [L('Area de trabajo:'), V(d.get('Area de trabajo')), L('Fecha:'), V(d.get('Fecha')), '', ''],
+        [L('Lugar:'), V(d.get('Lugar')), L('O.T.'), V(d.get('O.T.')),
+         L('Duracion de trabajo:'), V(d.get('Duracion de trabajo'))],
+        [L('Trabajadores:'), V(d.get('Trabajadores')), L('Usuario Calidra:'),
+         V(d.get('Usuario Calidra')), '', ''],
+        ['', '', L('Supervisor PERSI:'), V(d.get('Supervisor PERSI')), '', ''],
+    ]
+    t = Table(rows, colWidths=c)
+    t.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -1), 0.6, colors.black),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 2),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+        ('SPAN', (1, 0), (5, 0)),
+        ('SPAN', (3, 1), (5, 1)),
+        ('SPAN', (3, 3), (5, 3)),
+        ('SPAN', (3, 4), (5, 4)),
+        ('SPAN', (0, 3), (0, 4)),
+        ('SPAN', (1, 3), (1, 4)),
+    ]))
+    return t
+
+
+def _pdf_partidas_table(d):
+    hs = ParagraphStyle('hdr', parent=_S_CELL_C, fontName='Helvetica-Bold', fontSize=7.5)
+    header = [Paragraph('PARTIDA', hs), Paragraph('DESCRIPCION', hs),
+              Paragraph('UNI.MEDIDA', hs), Paragraph('CANTIDAD', hs),
+              Paragraph('p/u', hs), Paragraph('TOTAL', hs)]
+    rows = [header]
+    for i, p in enumerate(d.get('Partidas', []), 1):
         try:
-            pu_val = float(partida.get('pu', 0))
-            total_val = float(partida.get('total', 0))
+            pu = float(p.get('pu', 0))
+            tot = float(p.get('total', 0))
         except (ValueError, TypeError):
-            pu_val = 0
-            total_val = 0
-        can.drawString(455, y_position - 10, f"${pu_val:,.2f}")
-        can.drawString(507, y_position - 10, f"${total_val:,.2f}")
+            pu = tot = 0
+        rows.append([
+            Paragraph(str(i), _S_CELL_C),
+            Paragraph(str(p.get('descripcion', '')), _S_CELL),
+            Paragraph(str(p.get('um', '')), _S_CELL_C),
+            Paragraph(str(p.get('cantidad', '')), _S_CELL_C),
+            Paragraph(f"${pu:,.2f}", _S_CELL_C),
+            Paragraph(f"${tot:,.2f}", _S_CELL_C),
+        ])
+    gt = d.get('grand_total', 0)
+    gt_style = ParagraphStyle('gt', parent=_S_CELL_C, fontName='Helvetica-Bold', fontSize=8.5)
+    rows.append([Paragraph('TOTAL:', _S_LABEL), '', '', '', '',
+                 Paragraph(f"${gt:,.2f}", gt_style)])
+    widths = [46, USABLE_W - (46 + 58 + 50 + 58 + 72), 58, 50, 58, 72]
+    t = Table(rows, colWidths=widths, repeatRows=1)
+    n = len(rows)
+    t.setStyle(TableStyle([
+        ('GRID', (0, 0), (-1, -2), 0.6, colors.black),
+        ('BACKGROUND', (0, 0), (-1, 0), PDF_GREEN),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('VALIGN', (1, 1), (1, -2), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+        ('LEFTPADDING', (0, 0), (-1, 0), 2),
+        ('RIGHTPADDING', (0, 0), (-1, 0), 2),
+        ('LEFTPADDING', (2, 1), (-1, -1), 2),
+        ('RIGHTPADDING', (2, 1), (-1, -1), 2),
+        ('SPAN', (0, n - 1), (4, n - 1)),
+        ('LINEABOVE', (0, n - 1), (-1, n - 1), 0.8, colors.black),
+        ('BOX', (5, n - 1), (5, n - 1), 0.6, colors.black),
+        ('ALIGN', (0, n - 1), (0, n - 1), 'RIGHT'),
+    ]))
+    return t
 
-        descripcion_text = str(partida.get('descripcion', ''))
-        max_width = 250
-        p = Paragraph(descripcion_text, style_normal)
-        
-        p_width, p_height = p.wrapOn(can, max_width, cell_height)
-        p.drawOn(can, 70, y_position - p_height - 5)
-        
-        item_count += 1
-    
-    grand_total = report_data.get('grand_total', 0)
-    can.setFont("Helvetica-Bold", 10)
-    can.drawString(507, 213, f"${grand_total:,.2f}")
-    
-    comments = report_data.get('Comentarios de seguridad', '')
-    style_comments = styles['Normal']
-    style_comments.fontName = 'Helvetica'
-    style_comments.fontSize = 9
-    style_comments.leading = 11
-    
-    p_comments = Paragraph(comments, style_comments)
-    p_comments_width, p_comments_height = p_comments.wrapOn(can, 540, 60)
-    p_comments.drawOn(can, 35, 195 - p_comments_height)
 
-    can.save()
-    packet.seek(0)
-    
-    # --- Lógica de fusión y guardado ---
-    new_pdf_content = PdfReader(packet)
-    existing_pdf_template = PdfReader(open(template_path, "rb"))
-    output = PdfWriter()
-    
-    page = existing_pdf_template.pages[0]
-    page.merge_page(new_pdf_content.pages[0])
-    
-    # ✅ LÍNEA CORREGIDA: Se añade la página al archivo final
-    output.add_page(page)
-    
-    if not os.path.exists('static/reports'): os.makedirs('static/reports')
-    pdf_filename = f'reporte_cotizacion_{uuid.uuid4()}.pdf'
+def _pdf_sign_boxes():
+    def box(role):
+        supervisor = 'PERSI' if role == 'Elaboro' else 'CALIDRA'
+        inner = Table([[Paragraph(role, _S_SIGN)],
+                       [Spacer(1, 28)],
+                       [Paragraph('_______________________________', _S_SIGN_SUB)],
+                       [Paragraph('Nombre y Firma (Supervisor %s)' % supervisor, _S_SIGN_SUB)]],
+                      colWidths=[USABLE_W / 2 - 20])
+        inner.setStyle(TableStyle([
+            ('BOX', (0, 0), (-1, -1), 1.2, PDF_NAVY),
+            ('ROUNDEDCORNERS', [8, 8, 8, 8]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 3),
+        ]))
+        return inner
+    outer = Table([[box('Elaboro'), box('Recibio')]],
+                  colWidths=[USABLE_W / 2, USABLE_W / 2])
+    outer.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                               ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                               ('RIGHTPADDING', (0, 0), (-1, -1), 6)]))
+    return outer
+
+
+def _pdf_fotos(d):
+    def gallery(paths):
+        cells = []
+        for p in (paths or []):
+            if p and os.path.exists(p):
+                try:
+                    cells.append([Image(p, width=USABLE_W / 2 - 14, height=150)])
+                except Exception as e:
+                    print(f"!!! ERROR al dibujar la imagen {p}: {e}")
+                    cells.append([Spacer(1, 150)])
+        if not cells:
+            cells = [[Spacer(1, 150)]]
+        inner = Table(cells, colWidths=[USABLE_W / 2 - 10])
+        inner.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                                   ('TOPPADDING', (0, 0), (-1, -1), 4),
+                                   ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                                   ('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
+        return inner
+    band = Table([[Paragraph('FOTOS ANTES DE LA ACTIVIDAD', _S_BAND),
+                   Paragraph('FOTOS DESPUES DE LA ACTIVIDAD', _S_BAND)]],
+                 colWidths=[USABLE_W / 2, USABLE_W / 2])
+    band.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, -1), PDF_GREEN),
+                              ('GRID', (0, 0), (-1, -1), 0.8, colors.black),
+                              ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                              ('TOPPADDING', (0, 0), (-1, -1), 4),
+                              ('BOTTOMPADDING', (0, 0), (-1, -1), 4)]))
+    gal = Table([[gallery(d.get('Fotos_antes', [])), gallery(d.get('Fotos_despues', []))]],
+                colWidths=[USABLE_W / 2, USABLE_W / 2])
+    gal.setStyle(TableStyle([('GRID', (0, 0), (-1, -1), 0.8, colors.black),
+                             ('VALIGN', (0, 0), (-1, -1), 'TOP')]))
+    return band, gal
+
+
+def create_unified_pdf(report_data):
+    """Genera un único PDF (Cotización + Reporte de Actividades) con altura de
+    bloques dinámica y paginación automática. Devuelve la ruta relativa dentro
+    de la carpeta static."""
+    if not os.path.exists('static/reports'):
+        os.makedirs('static/reports')
+    pdf_filename = f'reporte_persi_{uuid.uuid4()}.pdf'
     pdf_path = os.path.join(app.static_folder, 'reports', pdf_filename)
-    with open(pdf_path, "wb") as outputStream:
-        output.write(outputStream)
-    return os.path.join('reports', pdf_filename).replace('\\', '/')
 
-def create_reporte2_pdf(report_data, account_sid, auth_token):
-    template_path = "REPORTE2.pdf"
-    packet = io.BytesIO()
-    can = canvas.Canvas(packet, pagesize=letter)
-    
-    styles = getSampleStyleSheet()
-    style_desc = styles['Normal']
-    style_desc.fontName = 'Helvetica'
-    style_desc.fontSize = 9
-    style_desc.leading = 11
+    doc = BaseDocTemplate(pdf_path, pagesize=A4,
+                          leftMargin=PAGE_MARGIN, rightMargin=PAGE_MARGIN,
+                          topMargin=PAGE_MARGIN, bottomMargin=PAGE_MARGIN)
+    frame = Frame(PAGE_MARGIN, PAGE_MARGIN, USABLE_W, PAGE_H - 2 * PAGE_MARGIN,
+                  id='main', leftPadding=0, rightPadding=0,
+                  topPadding=0, bottomPadding=0)
+    doc.addPageTemplates([PageTemplate(id='main', frames=[frame])])
 
-    # --- Dibuja todo el contenido en el canvas ---
-    can.setFont("Helvetica", 9)
-    can.drawString(92, 755, str(report_data.get('Area de trabajo', '')))
-    can.drawString(55, 743, str(report_data.get('Lugar', '')))
-    can.drawString(370, 755, str(report_data.get('Fecha', '')))
-    can.drawString(318, 743, str(report_data.get('O.T.', '')))
-    can.drawString(365, 718, str(report_data.get('Supervisor PERSI', '')))
-    can.drawString(365, 730, str(report_data.get('Usuario Calidra', '')))
-    can.drawString(25, 722, str(report_data.get('Trabajadores', '')))
-    can.drawString(508, 743, str(report_data.get('Duracion de trabajo', '')))
+    story = []
 
-    description = report_data.get('Descripcion general', '')
-    p_desc = Paragraph(description, style_desc)
-    
-    p_desc_width, p_desc_height = p_desc.wrapOn(can, 520, 100)
-    p_desc.drawOn(can, 30, 687 - p_desc_height)
-    
-    def add_image_gallery(image_paths, x_start, y_top, image_width, image_height):
-        y_cursor = y_top
-        for path in image_paths:
-            try:
-                can.drawImage(path, x_start, y_cursor - image_height, width=image_width, height=image_height, mask='auto', preserveAspectRatio=False)
-            except Exception as e:
-                print(f"!!! ERROR al dibujar la imagen {path}: {e}")
-            y_cursor -= (image_height + 5)
+    # ---------- COTIZACIÓN ----------
+    story.append(_pdf_header('COTIZACION'))
+    story.append(Spacer(1, 4))
+    story.append(_pdf_info_block(report_data))
+    story.append(Spacer(1, 4))
+    story.append(_pdf_partidas_table(report_data))
+    story.append(Spacer(1, 4))
+    cbox = Table([[Paragraph(str(report_data.get('Comentarios de seguridad', '') or ''), _S_VAL)]],
+                 colWidths=[USABLE_W])
+    cbox.setStyle(TableStyle([('BOX', (0, 0), (-1, -1), 0.6, colors.black),
+                              ('TOPPADDING', (0, 0), (-1, -1), 6),
+                              ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                              ('LEFTPADDING', (0, 0), (-1, -1), 6)]))
+    story.append(KeepTogether([_pdf_band('COMENTARIOS DE SEGURIDAD'), cbox]))
+    story.append(Spacer(1, 10))
+    story.append(KeepTogether(_pdf_sign_boxes()))
+    story.append(PageBreak())
 
-    if not os.path.exists('temp_images'): os.makedirs('temp_images')
-    add_image_gallery(report_data.get('Fotos_antes', []), x_start=26, y_top=545, image_width=260, image_height=156)
-    add_image_gallery(report_data.get('Fotos_despues', []), x_start=294, y_top=545, image_width=274, image_height=156)
+    # ---------- REPORTE DE ACTIVIDADES ----------
+    story.append(_pdf_header('REPORTE DE ACTIVIDADES'))
+    story.append(Spacer(1, 4))
+    story.append(_pdf_info_block(report_data))
+    story.append(Spacer(1, 4))
+    dbox = Table([[Paragraph(str(report_data.get('Descripcion general', '') or ''), _S_VAL)]],
+                 colWidths=[USABLE_W])
+    dbox.setStyle(TableStyle([('BOX', (0, 0), (-1, -1), 0.6, colors.black),
+                              ('TOPPADDING', (0, 0), (-1, -1), 8),
+                              ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                              ('LEFTPADDING', (0, 0), (-1, -1), 6)]))
+    story.append(KeepTogether([_pdf_band('DESCRIPCION DE ACTIVIDAD'), dbox]))
+    story.append(Spacer(1, 4))
+    band, gal = _pdf_fotos(report_data)
+    story.append(KeepTogether([band, gal]))
+    story.append(Spacer(1, 10))
+    story.append(KeepTogether([_pdf_band('FIRMAS DE LA ACTIVIDAD'), Spacer(1, 6),
+                               _pdf_sign_boxes()]))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph('FR-CAL-014',
+                           ParagraphStyle('foot', parent=_S_LABEL, alignment=2)))
 
-    can.save()
-    packet.seek(0)
-
-    # --- Lógica de fusión y guardado ---
-    new_pdf_content = PdfReader(packet)
-    existing_pdf_template = PdfReader(open(template_path, "rb"))
-    output = PdfWriter()
-
-    page = existing_pdf_template.pages[0]
-    page.merge_page(new_pdf_content.pages[0])
-    
-    # ✅ LÍNEA CORREGIDA: Se añade la página al archivo final
-    output.add_page(page)
-
-    if not os.path.exists('static/reports'): os.makedirs('static/reports')
-    pdf_filename = f'reporte_actividades_{uuid.uuid4()}.pdf'
-    pdf_path = os.path.join(app.static_folder, 'reports', pdf_filename)
-    with open(pdf_path, "wb") as outputStream:
-        output.write(outputStream)
+    doc.build(story)
     return os.path.join('reports', pdf_filename).replace('\\', '/')
 
 
@@ -298,12 +423,9 @@ def whatsapp_reply():
             resp.message(f'Por favor, envía una foto (máximo {MAX_PHOTOS}) o escribe "listo".')
         if session['state'] == 'report_complete':
             try:
-                pdf1_path = create_reporte1_pdf(session['report_data'])
-                pdf1_url = url_for('static', filename=pdf1_path, _external=True)
-                resp.message().media(pdf1_url)
-                pdf2_path = create_reporte2_pdf(session['report_data'], account_sid, auth_token)
-                pdf2_url = url_for('static', filename=pdf2_path, _external=True)
-                resp.message().media(pdf2_url)
+                pdf_path = create_unified_pdf(session['report_data'])
+                pdf_url = url_for('static', filename=pdf_path, _external=True)
+                resp.message().media(pdf_url)
                 if os.path.exists('temp_images'):
                     for f in os.listdir('temp_images'): os.remove(os.path.join('temp_images', f))
             except Exception as e:
